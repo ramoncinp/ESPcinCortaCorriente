@@ -5,7 +5,10 @@
 #define LED 2
 #define EVALUATION_TIME 45 //Segundos
 
-bool evaluate = true;
+bool count = true;
+byte currentSensorState;
+int noZeroCounter = 0;
+unsigned long debounceTimeRef;
 
 void countEvaluationTime();
 void handleSensor();
@@ -19,38 +22,48 @@ void setup()
 
   //Inicializar comunicacion serial
   Serial.begin(9600);
+
+  //Tiempo de estabilizacion
+  Serial.println("Tiempo de estabilizacion");
+  delay(10000); //10 segundos
+  Serial.println("Iniciando programa!");
+
+  //Asignar valor de "count" en base a estado actual e sensor
+  count = !(digitalRead(SENSOR_IN) == LOW);  
 }
 
 void loop()
 {
-  if (evaluate)
+  // Contar tiempo si no hay presencia de sensor
+  if (count)
     countEvaluationTime();
+
+  // Evaluar valor del sensor
+  handleSensor();
 
   yield();
 }
 
 void countEvaluationTime()
 {
-  static int counter = 0;
   static unsigned long startTime;
 
+  // Ejecutar cada segundo
   if (millis() - startTime >= 1000)
   {
     // Aumentar contador
-    counter++;
+    noZeroCounter++;
 
     // Mostrar tiepo actual
-    Serial.println("Tiempo -> " + String(counter) + " segundos");
+    Serial.println("Tiempo -> " + String(noZeroCounter) + " segundos");
 
     // Evaluar valor del contador
-    if (counter == EVALUATION_TIME)
+    if (noZeroCounter == EVALUATION_TIME)
     {
-      // Evaluar valor del sensor
-      handleSensor();
-
-      // Ya no evaluar ni contar
-      evaluate = false;
-      Serial.println("Termino el programa");
+      // Cortar corriente!
+      digitalWrite(RELE, HIGH);
+      // Dejar de contar
+      count = false;
     }
 
     // Tomar referencia de tiempo otra vez
@@ -60,15 +73,39 @@ void countEvaluationTime()
 
 void handleSensor()
 {
-  // Si no esta en bajo...
-  if (digitalRead(SENSOR_IN) != LOW)
+  // Validar tiempo de debounce
+  if (millis() - debounceTimeRef > 500)
   {
-    // Cortar corriente!, o alarmar
-    digitalWrite(RELE, HIGH);
-    Serial.println("Cortar corriente!");
-  }
-  else
-  {
-    Serial.println("No cortar corriente");
+    // Si no esta en bajo
+    if (digitalRead(SENSOR_IN) != LOW)
+    {
+      //Si el estado anterior era diferente, tomar referencia de debounce
+      if (currentSensorState == LOW)
+      {
+        //Comenzar a contar
+        Serial.println("Empezar a contar 45 segundos");
+        count = true;
+        debounceTimeRef = millis();
+      }
+    }
+    else
+    {
+      //No cortar corriente
+      digitalWrite(RELE, LOW);
+
+      //Si el estado anterior era diferente, tomar referencia de debounce
+      if (currentSensorState == HIGH)
+      {
+        Serial.println("Reinicar contador para corta-corriente");
+        //Reiniciar contador
+        noZeroCounter = 0;
+        //Indicar que no se debe contar
+        count = false;
+        debounceTimeRef = millis();
+      }
+    }
+
+    // Definir valor actual
+    currentSensorState = digitalRead(SENSOR_IN);
   }
 }
